@@ -1,0 +1,118 @@
+# =========================================================
+# train_utils.py
+# =========================================================
+
+import torch
+import torch.optim as optim
+import time
+
+
+# =========================================================
+# Metrics
+# =========================================================
+
+def mse(y, yhat):
+    return ((y - yhat) ** 2).mean()
+
+
+def mae(y, yhat):
+    return (y - yhat).abs().max()
+
+
+def rel_l2(y, yhat, eps=1e-12):
+    return torch.norm(y - yhat) / (torch.norm(y) + eps)
+
+
+# =========================================================
+# Training loop
+# =========================================================
+
+def train(
+    model,
+    x_train, y_train,
+    x_eval, y_eval,
+    epochs=6000,
+    lr=1e-3,
+):
+
+    opt = optim.AdamW(model.parameters(), lr=lr)
+
+    train_mse_hist = []
+    eval_rel_hist = []
+
+    print(f"{'Epoch':>5} | {'Train MSE':>10} | {'Eval RelL2':>10} | {'Time':>6}")
+    print("-" * 45)
+
+    t_start = time.time()
+    t_last = t_start
+
+    # -----------------------------------------------------
+    # Training
+    # -----------------------------------------------------
+
+    for ep in range(1, epochs + 1):
+
+        opt.zero_grad()
+
+        pred = model(x_train)
+        loss = mse(y_train, pred)
+
+        loss.backward()
+        opt.step()
+
+        train_mse_val = float(loss)
+        train_mse_hist.append(train_mse_val)
+
+        with torch.no_grad():
+            eval_pred = model(x_eval)
+            eval_rel_val = float(rel_l2(y_eval, eval_pred))
+
+        eval_rel_hist.append(eval_rel_val)
+
+        if ep % 500 == 0:
+
+            dt = time.time() - t_last
+            t_last = time.time()
+
+            print(
+                f"{ep:5d} | "
+                f"{train_mse_val:10.2e} | "
+                f"{eval_rel_val:10.2e} | "
+                f"{dt:6.1f}s"
+            )
+
+    total_time = time.time() - t_start
+
+    # -----------------------------------------------------
+    # Final metrics
+    # -----------------------------------------------------
+
+    with torch.no_grad():
+
+        pred_train = model(x_train)
+        pred_eval = model(x_eval)
+
+        final_train_mse = float(mse(y_train, pred_train))
+
+        final_eval_mse = float(mse(y_eval, pred_eval))
+        final_eval_rmse = final_eval_mse ** 0.5
+
+        final_eval_rel = float(rel_l2(y_eval, pred_eval))
+        final_eval_mae = float(mae(y_eval, pred_eval))
+
+    print(f"Final Train MSE : {final_train_mse:.2e}")
+    print(f"Final Eval RMSE : {final_eval_rmse:.2e}")
+    print(f"Final Eval RelL2: {final_eval_rel:.2e}")
+    print(f"Final Eval MAE  : {final_eval_mae:.2e}")
+    print(f"Total Time (s)  : {total_time:.2f}")
+    print("===============================================\n")
+
+    return (
+        train_mse_hist,
+        eval_rel_hist,
+        final_train_mse,
+        final_eval_rmse,
+        final_eval_rel,
+        final_eval_mae,
+        total_time,
+    )
